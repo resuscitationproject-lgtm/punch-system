@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ICカード打刻システム v2.0</title>
+    <title>ICカード打刻システム v3.0 (セキュリティ強化版)</title>
     <style>
         :root {
             --primary: #6366f1;
@@ -776,7 +776,7 @@
                 <span>🏷️</span>
                 ICカード打刻システム
             </h1>
-            <p class="header-subtitle">4種類打刻対応・5桁社員番号</p>
+            <p class="header-subtitle">4種類打刻対応・5桁社員番号 | 🔒 セキュリティ強化版</p>
         </header>
 
         <!-- 通常モード -->
@@ -1553,6 +1553,196 @@
                 toast.classList.remove('show');
             }, 3000);
         }
+
+        // ========================================
+        // 🔒 自動セキュリティパッチ v1.0
+        // 自動的にパスワードをハッシュ化します
+        // ========================================
+        
+        // SHA-256ハッシュ関数
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hashHex;
+        }
+
+        // パスワードハッシュ化の初期化（自動実行）
+        async function initSecurePassword() {
+            const storedHash = localStorage.getItem('adminPasswordHash');
+            
+            if (!storedHash) {
+                // 旧形式のパスワードがある場合は移行
+                const oldPassword = localStorage.getItem('adminPassword');
+                const passwordToHash = oldPassword || DEFAULT_PASSWORD;
+                
+                const hash = await hashPassword(passwordToHash);
+                localStorage.setItem('adminPasswordHash', hash);
+                
+                // 旧形式のパスワードを削除
+                localStorage.removeItem('adminPassword');
+                
+                console.log('✅ セキュリティ強化: パスワードをハッシュ化しました');
+                console.log('   元のパスワードでログイン可能です');
+                
+                if (!oldPassword || oldPassword === DEFAULT_PASSWORD) {
+                    setTimeout(function() {
+                        showToast('⚠️ セキュリティ強化完了！初期パスワードを変更してください', 'warning');
+                    }, 2000);
+                }
+            }
+        }
+
+        // 既存のinit関数を自動的に拡張
+        const originalInit = init;
+        init = async function() {
+            // セキュリティパッチを先に適用
+            await initSecurePassword();
+            
+            // 元のinit処理を実行
+            originalInit();
+            
+            console.log('========================================');
+            console.log('🔒 セキュリティパッチ v1.0 適用済み');
+            console.log('- パスワードハッシュ化: 有効');
+            console.log('- 最低文字数要件: 8文字');
+            console.log('========================================');
+        };
+
+        // 既存のadminLogin関数を自動的に上書き（ハッシュ検証版）
+        const originalAdminLogin = adminLogin;
+        adminLogin = async function() {
+            const password = document.getElementById('loginPassword').value;
+            
+            // ハッシュ化して比較
+            const inputHash = await hashPassword(password);
+            const storedHash = localStorage.getItem('adminPasswordHash');
+            
+            if (inputHash === storedHash) {
+                isAdminMode = true;
+                closeModal('loginModal');
+                document.getElementById('normalMode').style.display = 'none';
+                document.getElementById('adminPanel').classList.add('show');
+                document.getElementById('adminToggleBtn').classList.add('active');
+                document.getElementById('adminBtnText').textContent = 'ログアウト';
+                updateStaffTable();
+                showToast('管理者モードでログインしました', 'success');
+                
+                console.log('✅ 管理者ログイン成功（ハッシュ検証済み）');
+            } else {
+                showToast('パスワードが正しくありません', 'error');
+                console.log('❌ 管理者ログイン失敗');
+            }
+        };
+
+        // 既存のchangePassword関数を自動的に上書き（セキュリティ強化版）
+        const originalChangePassword = changePassword;
+        changePassword = async function() {
+            const current = document.getElementById('currentPassword').value;
+            const newPass = document.getElementById('newPassword').value;
+            const confirm = document.getElementById('confirmPassword').value;
+            
+            // 現在のパスワードを検証
+            const currentHash = await hashPassword(current);
+            const storedHash = localStorage.getItem('adminPasswordHash');
+            
+            if (currentHash !== storedHash) {
+                showToast('現在のパスワードが正しくありません', 'error');
+                return;
+            }
+            
+            // 新しいパスワードの検証（8文字以上に強化）
+            if (newPass.length < 8) {
+                showToast('🔒 新しいパスワードは8文字以上で入力してください', 'error');
+                return;
+            }
+            
+            if (newPass !== confirm) {
+                showToast('新しいパスワードが一致しません', 'error');
+                return;
+            }
+            
+            // デフォルトパスワードのチェック
+            if (newPass === DEFAULT_PASSWORD || newPass === '12345678') {
+                showToast('⚠️ 初期パスワードは使用できません', 'error');
+                return;
+            }
+            
+            // 簡易的な強度チェック
+            const hasNumber = /\d/.test(newPass);
+            const hasLetter = /[a-zA-Z]/.test(newPass);
+            
+            if (!hasNumber || !hasLetter) {
+                if (confirm('パスワードに数字と英字の両方を含めることを推奨します。このまま続けますか？')) {
+                    // 続行
+                } else {
+                    return;
+                }
+            }
+            
+            // 新しいパスワードをハッシュ化して保存
+            const newHash = await hashPassword(newPass);
+            localStorage.setItem('adminPasswordHash', newHash);
+            
+            // 旧形式のパスワードを削除
+            localStorage.removeItem('adminPassword');
+            
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+            
+            showToast('✅ パスワードを変更しました（ハッシュ化済み）', 'success');
+            console.log('✅ パスワード変更完了（SHA-256ハッシュ）');
+        };
+
+        // loadAllData関数も自動的に修正（adminPassword読み込みを無効化）
+        const originalLoadAllData = loadAllData;
+        loadAllData = function() {
+            // パスワード読み込みをスキップ（ハッシュ版を使用）
+            // adminPassword = localStorage.getItem('adminPassword') || DEFAULT_PASSWORD; // 無効化
+            
+            // スタッフマスター読み込み
+            const savedStaff = localStorage.getItem('staffMaster');
+            if (savedStaff) {
+                staffMaster = JSON.parse(savedStaff);
+            } else {
+                // 初期データ
+                staffMaster = {
+                    '00001': '山田 太郎',
+                    '00002': '佐藤 花子',
+                    '00003': '鈴木 一郎',
+                    '00004': '田中 美咲',
+                    '00005': '高橋 健太'
+                };
+                saveStaffMaster();
+            }
+
+            // 全打刻履歴読み込み
+            const savedAllHistory = localStorage.getItem('allPunchHistory');
+            if (savedAllHistory) {
+                allPunchHistory = JSON.parse(savedAllHistory);
+            }
+
+            // 本日の打刻履歴をフィルタ
+            const today = new Date().toDateString();
+            punchHistory = allPunchHistory.filter(function(record) {
+                return new Date(record.timestamp).toDateString() === today;
+            });
+
+            // 本日の統計を計算
+            todayStats = { IN: 0, OUT: 0, BREAK_START: 0, BREAK_END: 0 };
+            punchHistory.forEach(function(record) {
+                if (todayStats.hasOwnProperty(record.type)) {
+                    todayStats[record.type]++;
+                }
+            });
+        };
+
+        // ========================================
+        // 🔒 セキュリティパッチ終了
+        // ========================================
 
         // 起動
         init();
