@@ -964,10 +964,6 @@
     }
 
     // WebUSB関連変数（削除済み - localサーバー方式に変更）
-    let serverPollingTimer = null;
-    let serverConnected = false;
-    let lastCardIdm = null;
-
     // =============================================
     // localhost:8765 NFCサーバーポーリング
     // =============================================
@@ -1033,8 +1029,6 @@
             text.textContent = 'サーバー未接続';
             bannerTitle.textContent = 'NFCサーバー未接続';
             bannerSub.textContent = 'ターミナルで「python3 ~/nfc_punch.py」を実行してください';
-        }
-    }
         }
     }
 
