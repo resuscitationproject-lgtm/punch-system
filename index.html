@@ -465,12 +465,13 @@
             <div class="nfc-banner" id="nfcBanner">
                 <div class="nfc-banner-icon">📡</div>
                 <div class="nfc-banner-text">
-                    <div class="nfc-banner-title" id="nfcBannerTitle">RC-S300 未接続</div>
-                    <div class="nfc-banner-sub" id="nfcBannerSub">下のボタンでリーダーに接続してください</div>
+                    <div class="nfc-banner-title" id="nfcBannerTitle">NFCサーバー未接続</div>
+                    <div class="nfc-banner-sub" id="nfcBannerSub">ターミナルで「python3 ~/nfc_punch.py」を実行してください</div>
                 </div>
-                <button class="btn btn-primary" id="nfcConnectBtn" onclick="connectNFC()" style="flex-shrink:0;">
-                    <span>🔌</span> 接続
-                </button>
+                <div class="status-badge disconnected" id="readerStatusBadge" style="flex-shrink:0;">
+                    <span class="status-dot"></span>
+                    <span id="readerStatusText">未接続</span>
+                </div>
             </div>
 
             <div class="card" style="animation-delay: 0.1s">
@@ -785,11 +786,10 @@
     let cardMaster = {};        // { 'AABBCCDD11223344': '00001', ... }  IDm -> 社員番号
     let isAdminMode = false;
 
-    // WebUSB関連
-    let usbDevice = null;
-    let isPolling = false;
-    let pollingTimer = null;
-    let wizardIdm = null;       // カード登録ウィザードで読んだIDm
+    // NFCサーバー関連
+    let serverPollingTimer = null;
+    let serverConnected = false;
+    let lastCardIdm = null;
 
     // =============================================
     // 初期化
@@ -799,6 +799,7 @@
         loadAllData();
         updateClock();
         setInterval(updateClock, 1000);
+        startServerPolling();
         updateStats();
         updateHistory();
         updateStaffTable();
@@ -959,245 +960,54 @@
      * 以前に許可済みのRC-S300があれば自動接続
      */
     async function tryAutoConnect() {
-        if (!navigator.usb) return;
+        // localhost方式に変更のため不要
+    }
+    }
+
+    // WebUSB関連変数（削除済み - localサーバー方式に変更）
+    let serverPollingTimer = null;
+    let serverConnected = false;
+    let lastCardIdm = null;
+
+    // =============================================
+    // localhost:8765 NFCサーバーポーリング
+    // =============================================
+    function startServerPolling() {
+        if (serverPollingTimer) return;
+        serverPoll();
+    }
+
+    async function serverPoll() {
         try {
-            const devices = await navigator.usb.getDevices();
-            for (const dev of devices) {
-                if (RC_S300_FILTERS.some(f => f.vendorId === dev.vendorId && f.productId === dev.productId)) {
-                    usbDevice = dev;
-                    await openDevice();
-                    return;
+            const res = await fetch('http://localhost:8765', { signal: AbortSignal.timeout(800) });
+            const data = await res.json();
+
+            if (!serverConnected) {
+                serverConnected = true;
+                setReaderStatus('connected');
+            }
+
+            if (data.idm && data.idm !== lastCardIdm) {
+                lastCardIdm = data.idm;
+                // 読み取り済みフラグをサーバーにDELETEで通知
+                fetch('http://localhost:8765', { method: 'DELETE' }).catch(() => {});
+
+                if (data.staffId) {
+                    submitPunch(data.staffId);
+                } else {
+                    showToast('未登録カード: ' + data.idm, 'warning');
                 }
             }
+
+            if (!data.idm) lastCardIdm = null;
+
         } catch(e) {
-            console.warn('自動接続失敗:', e);
-        }
-    }
-
-    /**
-     * ユーザー操作による接続
-     */
-    async function connectNFC() {
-        if (!navigator.usb) {
-            showToast('このブラウザはWebUSBに対応していません（Chromeを使用してください）', 'error');
-            return;
-        }
-
-        try {
-            usbDevice = await navigator.usb.requestDevice({ filters: RC_S300_FILTERS });
-            await openDevice();
-        } catch(e) {
-            if (e.name !== 'NotFoundError') {
-                showToast('接続エラー: ' + e.message, 'error');
-            }
-        }
-    }
-
-    /**
-     * デバイスオープン＆ポーリング開始
-     */
-    async function openDevice() {
-        try {
-            await usbDevice.open();
-            await usbDevice.selectConfiguration(1);
-            await usbDevice.claimInterface(0);
-
-            setReaderStatus('connected');
-            showToast('RC-S300 に接続しました', 'success');
-            startPolling();
-            checkWizardStep();
-        } catch(e) {
-            usbDevice = null;
-            setReaderStatus('disconnected');
-            showToast('デバイスオープン失敗: ' + e.message, 'error');
-        }
-    }
-
-    /**
-     * カードポーリング（200ms毎にPollingコマンドを送信）
-     */
-    function startPolling() {
-        if (isPolling) return;
-        isPolling = true;
-        pollingLoop();
-    }
-
-    function stopPolling() {
-        isPolling = false;
-        if (pollingTimer) { clearTimeout(pollingTimer); pollingTimer = null; }
-    }
-
-    async function pollingLoop() {
-        if (!isPolling || !usbDevice || !usbDevice.opened) {
-            isPolling = false;
-            setReaderStatus('disconnected');
-            return;
-        }
-
-        try {
-            const idm = await pollCard();
-            if (idm) {
-                await onCardDetected(idm);
-                // 同じカードの連続打刻を防ぐため少し待つ
-                await sleep(2000);
-            }
-        } catch(e) {
-            // 通常のタイムアウトはスキップ、重大エラーは再接続
-            if (e.message && e.message.includes('disconnected')) {
-                usbDevice = null;
-                isPolling = false;
+            if (serverConnected) {
+                serverConnected = false;
                 setReaderStatus('disconnected');
-                showToast('RC-S300 が切断されました', 'warning');
-                return;
             }
         }
-
-        if (isPolling) {
-            pollingTimer = setTimeout(pollingLoop, 300);
-        }
-    }
-
-    /**
-     * RC-S300へPollingコマンドを送り、カードのIDmを返す
-     * カードなし → null
-     */
-    async function pollCard() {
-        // RC-S300コマンド構造 (RCS380プロトコル)
-        // TurnOnRF → StartTransparentSession → CommunicateThruEx(Polling) → EndTransparentSession
-
-        // RF ON
-        await sendRCS300Command(new Uint8Array([0xd6, 0x2a, 0x01, 0xff, 0x00]));
-        await sleep(10);
-
-        // InSetProtocol
-        await sendRCS300Command(new Uint8Array([
-            0xd6, 0x02,
-            0x00, 0x18, 0x01, 0x01, 0x02, 0x01, 0x03, 0x00,
-            0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x08,
-            0x08, 0x00, 0x09, 0x00, 0x0a, 0x00, 0x0b, 0x00,
-            0x0c, 0x00, 0x0e, 0x04, 0x0f, 0x00, 0x10, 0x00,
-            0x11, 0x00, 0x12, 0x00, 0x13, 0x06
-        ]));
-        await sleep(10);
-
-        // Polling（FeliCa / ISO14443A両対応）
-        // CommunicateThruEx に FeliCa Pollingコマンドを包む
-        const pollingCmd = new Uint8Array([
-            0x04, 0x06, 0x00, 0x06, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00
-        ]);
-        const thruCmd = buildCommunicateThruEx(pollingCmd);
-        const resp = await sendRCS300Command(thruCmd, 50);
-
-        if (!resp || resp.length < 20) return null;
-
-        // レスポンス解析: ポーリング応答からIDm(8byte)を取り出す
-        // RCS380レスポンス構造: ...FeliCaレスポンス...
-        // オフセットは固定ではないため、d7 05 00 を検索してその後のデータを取得
-        const idmBytes = extractIdmFromPollingResponse(resp);
-        return idmBytes;
-    }
-
-    function buildCommunicateThruEx(payload) {
-        // RCS380 CommunicateThruEx フレーム構築
-        const len = payload.length;
-        const frame = new Uint8Array(9 + len);
-        frame[0] = 0xd6;
-        frame[1] = 0xa0;
-        frame[2] = 0x00;  // timeout LSB
-        frame[3] = 0x00;  // timeout MSB
-        frame[4] = 0x00;
-        frame[5] = 0x00;
-        frame[6] = 0x00;
-        frame[7] = len & 0xff;
-        frame[8] = (len >> 8) & 0xff;
-        frame.set(payload, 9);
-        return frame;
-    }
-
-    function extractIdmFromPollingResponse(data) {
-        // FeliCa Pollingレスポンス: 01 response_code 0a IDm(8) PMm(8)
-        // RC-S300レスポンスのペイロード内を探索
-        for (let i = 0; i < data.length - 10; i++) {
-            // FeliCa Poll Responseは 0x01で始まり、次に長さ0x12
-            if (data[i] === 0x01 && data[i+1] === 0x12) {
-                const idmArr = data.slice(i + 2, i + 10);
-                return formatIdm(idmArr);
-            }
-        }
-        return null;
-    }
-
-    function formatIdm(bytes) {
-        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('');
-    }
-
-    /**
-     * RC-S300にUSBコマンドを送信してレスポンスを受け取る
-     * RC-S300はUSB Bulk Transfer を使用
-     */
-    async function sendRCS300Command(payload, timeoutMs) {
-        timeoutMs = timeoutMs || 200;
-
-        // USB Bulk Out フレーム: 00 00 ff ff ff LEN_L LEN_H LSUM DATA DSUM 00
-        const len = payload.length;
-        const lenHigh = (len >> 8) & 0xff;
-        const lenLow  = len & 0xff;
-        const lenSum  = (0x100 - ((lenHigh + lenLow) & 0xff)) & 0xff;
-
-        let dsum = 0;
-        payload.forEach(b => { dsum += b; });
-        dsum = (0x100 - (dsum & 0xff)) & 0xff;
-
-        const frame = new Uint8Array(8 + len);
-        frame[0] = 0x00;
-        frame[1] = 0x00;
-        frame[2] = 0xff;
-        frame[3] = 0xff;
-        frame[4] = 0xff;
-        frame[5] = lenLow;
-        frame[6] = lenHigh;
-        frame[7] = lenSum;
-        frame.set(payload, 8);
-        // DSumとTerminator
-        const fullFrame = new Uint8Array(frame.length + 2);
-        fullFrame.set(frame);
-        fullFrame[frame.length]   = dsum;
-        fullFrame[frame.length+1] = 0x00;
-
-        try {
-            await usbDevice.transferOut(2, fullFrame);
-            const result = await usbDevice.transferIn(1, 256);
-            if (result.data) {
-                return new Uint8Array(result.data.buffer);
-            }
-        } catch(e) {
-            // タイムアウトや空レスポンスは無視
-        }
-        return null;
-    }
-
-    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-    /**
-     * カード検出時の処理
-     */
-    async function onCardDetected(idm) {
-        console.log('カード検出 IDm:', idm);
-
-        // カード登録ウィザード中なら IDm を表示して Step3 へ
-        if (isAdminMode && document.getElementById('adminCards').classList.contains('show')) {
-            handleWizardCardRead(idm);
-            return;
-        }
-
-        // 通常打刻モード
-        const staffId = cardMaster[idm];
-        if (!staffId) {
-            showToast('未登録のカードです（管理者パネルで登録してください）', 'warning');
-            return;
-        }
-
-        submitPunch(staffId);
+        serverPollingTimer = setTimeout(serverPoll, 500);
     }
 
     // =============================================
@@ -1209,25 +1019,47 @@
         const banner = document.getElementById('nfcBanner');
         const bannerTitle = document.getElementById('nfcBannerTitle');
         const bannerSub   = document.getElementById('nfcBannerSub');
-        const btn = document.getElementById('nfcConnectBtn');
 
         badge.className = 'status-badge';
         banner.className = 'nfc-banner';
 
         if (status === 'connected') {
             badge.classList.add('connected');
-            text.textContent = 'RC-S300 接続中';
+            text.textContent = 'サーバー接続中';
             banner.classList.add('connected');
-            bannerTitle.textContent = 'RC-S300 接続済み ✅';
+            bannerTitle.textContent = 'NFCサーバー接続済み ✅';
             bannerSub.textContent = 'カードをタッチすると自動的に打刻されます';
-            btn.textContent = '再接続';
-            btn.innerHTML = '<span>🔄</span> 再接続';
         } else {
             badge.classList.add('disconnected');
-            text.textContent = 'リーダー未接続';
-            bannerTitle.textContent = 'RC-S300 未接続';
-            bannerSub.textContent = '接続ボタンを押してリーダーに接続してください';
-            btn.innerHTML = '<span>🔌</span> 接続';
+            text.textContent = 'サーバー未接続';
+            bannerTitle.textContent = 'NFCサーバー未接続';
+            bannerSub.textContent = 'ターミナルで「python3 ~/nfc_punch.py」を実行してください';
+        }
+    }
+        }
+    }
+
+    function setReaderStatus(status) {
+        const badge  = document.getElementById('readerStatusBadge');
+        const text   = document.getElementById('readerStatusText');
+        const banner = document.getElementById('nfcBanner');
+        const bannerTitle = document.getElementById('nfcBannerTitle');
+        const bannerSub   = document.getElementById('nfcBannerSub');
+
+        badge.className = 'status-badge';
+        banner.className = 'nfc-banner';
+
+        if (status === 'connected') {
+            badge.classList.add('connected');
+            text.textContent = 'サーバー接続中';
+            banner.classList.add('connected');
+            bannerTitle.textContent = 'NFCサーバー接続済み ✅';
+            bannerSub.textContent = 'カードをタッチすると自動的に打刻されます';
+        } else {
+            badge.classList.add('disconnected');
+            text.textContent = 'サーバー未接続';
+            bannerTitle.textContent = 'NFCサーバー未接続';
+            bannerSub.textContent = 'ターミナルで「python3 ~/nfc_punch.py」を実行してください';
         }
     }
 
