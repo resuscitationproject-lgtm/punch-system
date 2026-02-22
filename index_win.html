@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICカード打刻システム v5.0 (WebUSB RC-S300対応)</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #06b6d4;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+            --radius: 16px;
+            --radius-sm: 8px;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            min-height: 100vh;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        .bg-orbs {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none; overflow: hidden; z-index: 0;
+        }
+        .orb {
+            position: absolute; border-radius: 50%;
+            filter: blur(80px); opacity: 0.5;
+            animation: float 20s ease-in-out infinite;
+        }
+        .orb-1 { width: 400px; height: 400px; background: rgba(99,102,241,0.4); top: -100px; left: -100px; }
+        .orb-2 { width: 300px; height: 300px; background: rgba(236,72,153,0.4); top: 50%; right: -100px; animation-delay: -5s; }
+        .orb-3 { width: 350px; height: 350px; background: rgba(16,185,129,0.3); bottom: -100px; left: 30%; animation-delay: -10s; }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0,0) scale(1); }
+            25% { transform: translate(50px,-50px) scale(1.1); }
+            50% { transform: translate(-30px,30px) scale(0.9); }
+            75% { transform: translate(-50px,-30px) scale(1.05); }
+        }
+
+        .container { max-width: 900px; margin: 0 auto; position: relative; z-index: 1; }
+
+        .header { text-align: center; margin-bottom: 30px; animation: slideDown 0.6s ease-out; }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .header-title {
+            font-size: 2rem; font-weight: 700; color: white;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+        }
+        .header-subtitle { color: rgba(255,255,255,0.85); margin-top: 8px; font-size: 1rem; }
+
+        .admin-toggle { position: fixed; top: 20px; right: 20px; z-index: 100; }
+        .admin-btn {
+            padding: 12px 20px;
+            background: rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 999px; color: white;
+            font-size: 0.9rem; font-weight: 500; cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .admin-btn:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        .admin-btn.active { background: var(--danger); border-color: var(--danger); }
+
+        .card {
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(20px);
+            border-radius: var(--radius);
+            padding: 24px; margin-bottom: 24px;
+            box-shadow: var(--shadow-xl);
+            animation: fadeInUp 0.6s ease-out both;
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .clock-display { text-align: center; }
+        .clock-time {
+            font-size: 4rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--primary) 0%, #ec4899 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text; letter-spacing: -2px; line-height: 1;
+        }
+        .clock-date { font-size: 1.1rem; color: var(--gray-600); margin-top: 8px; }
+
+        .status-badges {
+            display: flex; justify-content: center; gap: 12px;
+            margin-top: 16px; flex-wrap: wrap;
+        }
+        .status-badge {
+            display: flex; align-items: center; gap: 6px;
+            padding: 8px 16px; border-radius: 999px;
+            font-size: 0.85rem; font-weight: 500;
+        }
+        .status-badge.connected { background: rgba(16,185,129,0.15); color: var(--success); }
+        .status-badge.disconnected { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-badge.warning { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        /* NFC接続バナー */
+        .nfc-banner {
+            background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(99,102,241,0.05) 100%);
+            border: 2px solid rgba(99,102,241,0.3);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 24px;
+            display: flex; align-items: center; gap: 16px;
+            animation: fadeInUp 0.6s ease-out 0.15s both;
+        }
+        .nfc-banner-icon { font-size: 2.5rem; flex-shrink: 0; }
+        .nfc-banner-text { flex: 1; }
+        .nfc-banner-title { font-weight: 700; color: var(--gray-800); font-size: 1.05rem; }
+        .nfc-banner-sub { color: var(--gray-500); font-size: 0.9rem; margin-top: 4px; }
+        .nfc-banner.connected { border-color: rgba(16,185,129,0.4); background: linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.05) 100%); }
+        .nfc-banner.polling { border-color: rgba(99,102,241,0.4); }
+
+        .section-title {
+            font-size: 1.1rem; font-weight: 600; color: var(--gray-700);
+            margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+        }
+
+        .punch-types {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+        }
+        @media (max-width: 640px) {
+            .punch-types { grid-template-columns: repeat(2, 1fr); }
+            .clock-time { font-size: 2.5rem; }
+            .nfc-banner { flex-direction: column; text-align: center; }
+        }
+
+        .punch-btn {
+            position: relative; padding: 20px 16px;
+            border: 3px solid transparent;
+            border-radius: var(--radius); cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+            text-align: center; background: white;
+        }
+        .punch-btn:hover { transform: translateY(-2px); }
+        .punch-btn.active { transform: scale(1.02); box-shadow: var(--shadow-lg); }
+        .punch-btn[data-type="IN"] { background: linear-gradient(135deg, rgba(16,185,129,0.1) 0%, rgba(16,185,129,0.05) 100%); }
+        .punch-btn[data-type="IN"].active { border-color: var(--success); background: linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.1) 100%); }
+        .punch-btn[data-type="OUT"] { background: linear-gradient(135deg, rgba(239,68,68,0.1) 0%, rgba(239,68,68,0.05) 100%); }
+        .punch-btn[data-type="OUT"].active { border-color: var(--danger); background: linear-gradient(135deg, rgba(239,68,68,0.2) 0%, rgba(239,68,68,0.1) 100%); }
+        .punch-btn[data-type="BREAK_START"] { background: linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(245,158,11,0.05) 100%); }
+        .punch-btn[data-type="BREAK_START"].active { border-color: var(--warning); background: linear-gradient(135deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.1) 100%); }
+        .punch-btn[data-type="BREAK_END"] { background: linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(6,182,212,0.05) 100%); }
+        .punch-btn[data-type="BREAK_END"].active { border-color: var(--info); background: linear-gradient(135deg, rgba(6,182,212,0.2) 0%, rgba(6,182,212,0.1) 100%); }
+        .punch-icon { font-size: 2.5rem; margin-bottom: 8px; display: block; transition: transform 0.3s ease; }
+        .punch-btn:hover .punch-icon { transform: scale(1.1); }
+        .punch-btn.active .punch-icon { animation: bounce 0.5s ease; }
+        @keyframes bounce {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        .punch-label { font-size: 1rem; font-weight: 600; color: var(--gray-700); }
+        .punch-check {
+            position: absolute; top: 8px; right: 8px;
+            width: 24px; height: 24px; background: white; border-radius: 50%;
+            display: none; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: bold; box-shadow: var(--shadow);
+        }
+        .punch-btn.active .punch-check { display: flex; }
+        .punch-btn[data-type="IN"] .punch-check { color: var(--success); }
+        .punch-btn[data-type="OUT"] .punch-check { color: var(--danger); }
+        .punch-btn[data-type="BREAK_START"] .punch-check { color: var(--warning); }
+        .punch-btn[data-type="BREAK_END"] .punch-check { color: var(--info); }
+
+        .staff-input-wrapper { display: flex; gap: 12px; align-items: stretch; }
+        @media (max-width: 640px) { .staff-input-wrapper { flex-direction: column; } }
+
+        .input-group { flex: 1; position: relative; }
+        .staff-input {
+            width: 100%; padding: 16px 20px 16px 50px;
+            font-size: 1.5rem; font-weight: 600;
+            letter-spacing: 8px; text-align: center;
+            border: 2px solid var(--gray-200);
+            border-radius: var(--radius); transition: all 0.3s ease; background: white;
+        }
+        .staff-input:focus {
+            outline: none; border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.15);
+        }
+        .input-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); font-size: 1.5rem; }
+
+        .btn {
+            padding: 16px 32px; border: none; border-radius: var(--radius);
+            font-size: 1.1rem; font-weight: 600; cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px; white-space: nowrap;
+        }
+        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(99,102,241,0.3); }
+        .btn-success { background: linear-gradient(135deg, var(--success) 0%, #059669 100%); color: white; }
+        .btn-success:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(16,185,129,0.3); }
+        .btn-danger { background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%); color: white; }
+        .btn-secondary { background: var(--gray-200); color: var(--gray-700); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 768px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        .stat-card {
+            background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
+            border-radius: var(--radius); padding: 20px; text-align: center;
+            box-shadow: var(--shadow); transition: all 0.3s ease;
+        }
+        .stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+        .stat-icon { font-size: 2rem; margin-bottom: 8px; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: var(--gray-800); }
+        .stat-label { font-size: 0.85rem; color: var(--gray-500); margin-top: 4px; }
+
+        .history-list { max-height: 400px; overflow-y: auto; }
+        .history-item {
+            display: flex; align-items: center; gap: 16px;
+            padding: 16px; border-radius: var(--radius-sm); transition: all 0.3s ease;
+        }
+        .history-item:hover { background: var(--gray-50); }
+        .history-item + .history-item { border-top: 1px solid var(--gray-100); }
+        .history-icon {
+            width: 48px; height: 48px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; flex-shrink: 0;
+        }
+        .history-icon.in { background: rgba(16,185,129,0.15); }
+        .history-icon.out { background: rgba(239,68,68,0.15); }
+        .history-icon.break-start { background: rgba(245,158,11,0.15); }
+        .history-icon.break-end { background: rgba(6,182,212,0.15); }
+        .history-info { flex: 1; }
+        .history-name { font-weight: 600; color: var(--gray-800); font-size: 1.05rem; }
+        .history-type { font-size: 0.9rem; color: var(--gray-500); margin-top: 2px; }
+        .history-time { text-align: right; }
+        .history-time-value { font-size: 1.2rem; font-weight: 600; color: var(--gray-700); }
+        .empty-state { text-align: center; padding: 40px; color: var(--gray-400); }
+        .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+
+        /* モーダル */
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+            display: none; align-items: center; justify-content: center;
+            z-index: 1000; padding: 20px;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: white; border-radius: 24px; padding: 32px;
+            max-width: 500px; width: 100%; max-height: 90vh; overflow-y: auto;
+            animation: scaleIn 0.3s ease-out;
+        }
+        .modal-lg { max-width: 700px; }
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .modal-title { font-size: 1.5rem; font-weight: 700; color: var(--gray-800); display: flex; align-items: center; gap: 12px; }
+        .modal-close {
+            width: 40px; height: 40px; border: none; background: var(--gray-100);
+            border-radius: 50%; cursor: pointer; font-size: 1.2rem;
+            display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;
+        }
+        .modal-close:hover { background: var(--gray-200); }
+
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; font-weight: 600; color: var(--gray-700); margin-bottom: 8px; }
+        .form-input {
+            width: 100%; padding: 12px 16px;
+            border: 2px solid var(--gray-200); border-radius: var(--radius-sm);
+            font-size: 1rem; transition: all 0.3s ease;
+        }
+        .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99,102,241,0.15); }
+        .form-actions { display: flex; gap: 12px; margin-top: 24px; }
+        .form-actions .btn { flex: 1; }
+
+        /* 打刻結果 */
+        .result-card {
+            background: white; border-radius: 24px; padding: 40px;
+            text-align: center; max-width: 400px; width: 100%;
+        }
+        .result-icon { font-size: 5rem; margin-bottom: 16px; animation: resultBounce 0.6s ease-out 0.2s both; }
+        @keyframes resultBounce {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .result-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; }
+        .result-name { font-size: 1.4rem; color: var(--gray-700); margin-bottom: 16px; }
+        .result-time { font-size: 2.5rem; font-weight: 700; color: var(--primary); margin-bottom: 24px; }
+        .result-close {
+            padding: 12px 32px; background: var(--gray-100); border: none;
+            border-radius: 999px; font-size: 1rem; font-weight: 500;
+            color: var(--gray-600); cursor: pointer; transition: all 0.3s ease;
+        }
+        .result-close:hover { background: var(--gray-200); }
+
+        /* 管理者パネル */
+        .admin-panel { display: none; }
+        .admin-panel.show { display: block; }
+        .admin-tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+        .admin-tab {
+            padding: 12px 24px; background: var(--gray-100); border: none;
+            border-radius: 999px; font-size: 0.95rem; font-weight: 500;
+            color: var(--gray-600); cursor: pointer; transition: all 0.3s ease;
+        }
+        .admin-tab:hover { background: var(--gray-200); }
+        .admin-tab.active { background: var(--primary); color: white; }
+        .admin-content { display: none; }
+        .admin-content.show { display: block; }
+
+        .staff-table { width: 100%; border-collapse: collapse; }
+        .staff-table th, .staff-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--gray-200); }
+        .staff-table th { background: var(--gray-50); font-weight: 600; color: var(--gray-700); }
+        .staff-table tr:hover td { background: var(--gray-50); }
+        .staff-actions { display: flex; gap: 8px; }
+        .btn-sm { padding: 8px 12px; font-size: 0.85rem; }
+        .btn-icon { width: 36px; height: 36px; padding: 0; border-radius: 8px; }
+
+        /* IDmバッジ */
+        .idm-badge {
+            display: inline-block; padding: 3px 10px;
+            background: var(--gray-100); border-radius: 999px;
+            font-size: 0.75rem; font-family: monospace;
+            color: var(--gray-600); letter-spacing: 1px;
+        }
+        .idm-badge.registered { background: rgba(16,185,129,0.15); color: var(--success); }
+        .idm-badge.unregistered { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+        /* カード登録ウィザード */
+        .register-wizard {
+            background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(99,102,241,0.03) 100%);
+            border: 2px dashed rgba(99,102,241,0.3);
+            border-radius: var(--radius); padding: 24px; margin-top: 16px;
+        }
+        .wizard-step { display: none; }
+        .wizard-step.show { display: block; }
+        .idm-display {
+            font-family: monospace; font-size: 1.4rem; font-weight: 700;
+            color: var(--primary); letter-spacing: 3px;
+            background: var(--gray-50); padding: 12px 20px;
+            border-radius: var(--radius-sm); text-align: center;
+            margin: 16px 0;
+        }
+
+        /* トースト */
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            padding: 16px 24px; background: var(--gray-800); color: white;
+            border-radius: var(--radius); box-shadow: var(--shadow-xl);
+            display: flex; align-items: center; gap: 12px;
+            transform: translateY(100px); opacity: 0;
+            transition: all 0.4s cubic-bezier(0.4,0,0.2,1); z-index: 1001;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: var(--success); }
+        .toast.error { background: var(--danger); }
+        .toast.warning { background: var(--warning); }
+
+        .footer { text-align: center; padding: 24px; color: rgba(255,255,255,0.7); font-size: 0.9rem; }
+        .hidden { display: none !important; }
+        .text-muted { color: var(--gray-500); font-size: 0.9rem; }
+        .mt-2 { margin-top: 8px; }
+        .info-box {
+            background: var(--gray-50); border-left: 4px solid var(--primary);
+            padding: 12px 16px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            margin-top: 12px; font-size: 0.9rem; color: var(--gray-600);
+        }
+
+        /* 期間指定エリア */
+        .date-range-box {
+            background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(99,102,241,0.02) 100%);
+            border: 2px solid rgba(99,102,241,0.2);
+            border-radius: var(--radius); padding: 20px;
+        }
+        .date-range-inputs {
+            display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+        }
+        .date-field { flex: 1; min-width: 140px; }
+        .date-range-sep {
+            font-size: 1.3rem; font-weight: 600; color: var(--gray-500);
+            padding-bottom: 12px; flex-shrink: 0;
+        }
+        .date-shortcuts {
+            display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+        }
+        .shortcut-btn {
+            padding: 7px 14px; background: white;
+            border: 1.5px solid var(--gray-300); border-radius: 999px;
+            font-size: 0.85rem; font-weight: 500; color: var(--gray-600);
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .shortcut-btn:hover {
+            border-color: var(--primary); color: var(--primary);
+            background: rgba(99,102,241,0.06);
+        }
+        .range-preview {
+            margin-top: 12px; padding: 10px 14px;
+            background: rgba(16,185,129,0.1); border-radius: var(--radius-sm);
+            font-size: 0.9rem; color: var(--success); font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <div class="admin-toggle">
+        <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdminMode()">
+            <span>⚙️</span>
+            <span id="adminBtnText">管理者</span>
+        </button>
+    </div>
+
+    <div class="container">
+        <header class="header">
+            <h1 class="header-title">
+                <span>🏷️</span>
+                ICカード打刻システム
+            </h1>
+            <p class="header-subtitle">Sony PaSoRi RC-S300対応 | WebUSB IDm方式 | 🔒 セキュリティ強化版</p>
+        </header>
+
+        <!-- 通常モード -->
+        <div id="normalMode">
+
+            <!-- NFC接続バナー -->
+            <div class="nfc-banner" id="nfcBanner">
+                <div class="nfc-banner-icon">📡</div>
+                <div class="nfc-banner-text">
+                    <div class="nfc-banner-title" id="nfcBannerTitle">RC-S300 未接続</div>
+                    <div class="nfc-banner-sub" id="nfcBannerSub">下のボタンでリーダーに接続してください</div>
+                </div>
+                <button class="btn btn-primary" id="nfcConnectBtn" onclick="connectNFC()" style="flex-shrink:0;">
+                    <span>🔌</span> 接続
+                </button>
+            </div>
+
+            <div class="card" style="animation-delay: 0.1s">
+                <div class="clock-display">
+                    <div class="clock-time" id="clockTime">00:00:00</div>
+                    <div class="clock-date" id="clockDate">----年--月--日（-）</div>
+                </div>
+                <div class="status-badges">
+                    <div class="status-badge connected">
+                        <span class="status-dot"></span>
+                        <span>システム稼働中</span>
+                    </div>
+                    <div class="status-badge disconnected" id="readerStatusBadge">
+                        <span class="status-dot"></span>
+                        <span id="readerStatusText">リーダー未接続</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="animation-delay: 0.2s">
+                <div class="section-title"><span>🎯</span> 打刻種別を選択</div>
+                <div class="punch-types">
+                    <button class="punch-btn active" data-type="IN" onclick="selectPunchType('IN')">
+                        <span class="punch-check">✓</span>
+                        <span class="punch-icon">🟢</span>
+                        <span class="punch-label">出勤</span>
+                    </button>
+                    <button class="punch-btn" data-type="OUT" onclick="selectPunchType('OUT')">
+                        <span class="punch-check">✓</span>
+                        <span class="punch-icon">🔴</span>
+                        <span class="punch-label">退勤</span>
+                    </button>
+                    <button class="punch-btn" data-type="BREAK_START" onclick="selectPunchType('BREAK_START')">
+                        <span class="punch-check">✓</span>
+                        <span class="punch-icon">🟡</span>
+                        <span class="punch-label">休憩開始</span>
+                    </button>
+                    <button class="punch-btn" data-type="BREAK_END" onclick="selectPunchType('BREAK_END')">
+                        <span class="punch-check">✓</span>
+                        <span class="punch-icon">🟠</span>
+                        <span class="punch-label">休憩終了</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card" style="animation-delay: 0.3s">
+                <div class="section-title"><span>👤</span> 社員番号を入力（またはカードタッチ）</div>
+                <div class="staff-input-wrapper">
+                    <div class="input-group">
+                        <span class="input-icon">🔢</span>
+                        <input type="text" id="staffId" class="staff-input" placeholder="00000"
+                               maxlength="5" inputmode="numeric" autocomplete="off">
+                    </div>
+                    <button class="btn btn-primary" onclick="submitPunch()">
+                        <span>打刻</span><span>→</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-grid" style="animation: fadeInUp 0.6s ease-out 0.4s both;">
+                <div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-value" id="statIn">0</div><div class="stat-label">出勤</div></div>
+                <div class="stat-card"><div class="stat-icon">🔴</div><div class="stat-value" id="statOut">0</div><div class="stat-label">退勤</div></div>
+                <div class="stat-card"><div class="stat-icon">🟡</div><div class="stat-value" id="statBreakStart">0</div><div class="stat-label">休憩開始</div></div>
+                <div class="stat-card"><div class="stat-icon">🟠</div><div class="stat-value" id="statBreakEnd">0</div><div class="stat-label">休憩終了</div></div>
+            </div>
+
+            <div class="card" style="animation-delay: 0.5s">
+                <div class="section-title"><span>📋</span> 本日の打刻履歴</div>
+                <div class="history-list" id="historyList">
+                    <div class="empty-state"><div class="empty-icon">📭</div><div>まだ打刻がありません</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 管理者パネル -->
+        <div id="adminPanel" class="admin-panel">
+            <div class="card">
+                <div class="admin-tabs">
+                    <button class="admin-tab active" onclick="switchAdminTab('staff', this)">👥 社員管理</button>
+                    <button class="admin-tab" onclick="switchAdminTab('cards', this)">💳 カード管理</button>
+                    <button class="admin-tab" onclick="switchAdminTab('data', this)">📊 データ管理</button>
+                    <button class="admin-tab" onclick="switchAdminTab('settings', this)">⚙️ 設定</button>
+                </div>
+
+                <!-- 社員管理 -->
+                <div id="adminStaff" class="admin-content show">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h3>登録社員一覧</h3>
+                        <button class="btn btn-success btn-sm" onclick="openAddStaffModal()"><span>➕</span> 社員追加</button>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="staff-table">
+                            <thead><tr><th>社員番号</th><th>氏名</th><th>カード</th><th>操作</th></tr></thead>
+                            <tbody id="staffTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- カード管理 -->
+                <div id="adminCards" class="admin-content">
+                    <h3 style="margin-bottom:8px;">カード（IDm）登録</h3>
+                    <p class="text-muted" style="margin-bottom:20px;">社員にICカードを割り当てます。カードをリーダーにかざしてIDmを読み取り、社員に紐付けてください。</p>
+
+                    <div class="register-wizard">
+                        <div class="section-title">✍️ カードを登録</div>
+                        <div class="form-group">
+                            <label class="form-label">IDm（カードの固有ID）</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="newCardIdm" class="form-input" placeholder="カードをかざすと自動入力、または手入力" maxlength="16"
+                                       style="font-family:monospace; letter-spacing:2px; font-size:1.1rem; flex:1;">
+                                <button class="btn btn-secondary" onclick="readCardForRegistration()" title="カードをリーダーにかざしてIDmを読み取る">
+                                    📡 読み取り
+                                </button>
+                            </div>
+                            <p class="text-muted mt-2" id="cardReadStatus">リーダーに接続後、「📡 読み取り」ボタンを押してカードをかざしてください。</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">割り当て先の社員</label>
+                            <select id="newCardStaff" class="form-input">
+                                <option value="">-- 社員を選択 --</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success" onclick="addCard()" style="width:100%;">
+                            <span>💳</span> カードを登録
+                        </button>
+                    </div>
+
+                    <h3 style="margin: 24px 0 16px;">登録済みカード一覧</h3>
+                    <div style="overflow-x:auto;">
+                        <table class="staff-table">
+                            <thead><tr><th>IDm</th><th>社員番号</th><th>氏名</th><th>操作</th></tr></thead>
+                            <tbody id="cardTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- データ管理 -->
+                <div id="adminData" class="admin-content">
+                    <h3 style="margin-bottom:20px;">打刻データ管理</h3>
+
+                    <div class="section-title" style="margin-bottom:12px;"><span>⚡</span> クイック出力</div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:28px;">
+                        <button class="btn btn-primary" onclick="exportCSV('today')"><span>📥</span> 本日</button>
+                        <button class="btn btn-success" onclick="exportCSV('month')"><span>📥</span> 今月</button>
+                        <button class="btn btn-secondary" onclick="exportCSV('all')"><span>📥</span> 全期間</button>
+                    </div>
+
+                    <div class="section-title" style="margin-bottom:12px;"><span>📅</span> 期間指定出力</div>
+                    <div class="date-range-box">
+                        <div class="date-range-inputs">
+                            <div class="date-field">
+                                <label class="form-label">開始日</label>
+                                <input type="date" id="exportDateFrom" class="form-input">
+                            </div>
+                            <div class="date-range-sep">〜</div>
+                            <div class="date-field">
+                                <label class="form-label">終了日</label>
+                                <input type="date" id="exportDateTo" class="form-input">
+                            </div>
+                        </div>
+                        <div class="date-shortcuts">
+                            <button class="shortcut-btn" onclick="setDateRange('thisWeek')">今週</button>
+                            <button class="shortcut-btn" onclick="setDateRange('lastWeek')">先週</button>
+                            <button class="shortcut-btn" onclick="setDateRange('lastMonth')">先月</button>
+                            <button class="shortcut-btn" onclick="setDateRange('last3months')">過去3ヶ月</button>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <button class="btn btn-primary" onclick="exportCSV('range')" style="width:100%;">
+                                <span>📥</span> 指定期間のデータを出力
+                            </button>
+                        </div>
+                        <div id="rangePreview" class="range-preview hidden"></div>
+                    </div>
+
+                    <div class="info-box" style="margin-top:20px;">💡 CSVファイルはExcelやGoogle Sheetsで開くことができます。</div>
+                </div>
+
+                <!-- 設定 -->
+                <div id="adminSettings" class="admin-content">
+                    <h3 style="margin-bottom:20px;">システム設定</h3>
+                    <div class="form-group">
+                        <label class="form-label">管理者パスワード変更</label>
+                        <input type="password" id="currentPassword" class="form-input" placeholder="現在のパスワード" style="margin-bottom:12px;">
+                        <input type="password" id="newPassword" class="form-input" placeholder="新しいパスワード（8文字以上）" style="margin-bottom:12px;">
+                        <input type="password" id="confirmPassword" class="form-input" placeholder="新しいパスワード（確認）">
+                    </div>
+                    <button class="btn btn-primary" onclick="changePassword()"><span>🔐</span> パスワード変更</button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>© 2024 光井企画工学事務所 - ICカード打刻システム v5.0 (WebUSB RC-S300)</p>
+        </footer>
+    </div>
+
+    <!-- ログインモーダル -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title"><span>🔐</span> 管理者ログイン</h2>
+                <button class="modal-close" onclick="closeModal('loginModal')">✕</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">パスワード</label>
+                <input type="password" id="loginPassword" class="form-input" placeholder="パスワードを入力"
+                       onkeypress="if(event.key==='Enter')adminLogin()">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeModal('loginModal')">キャンセル</button>
+                <button class="btn btn-primary" onclick="adminLogin()">ログイン</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 社員追加モーダル -->
+    <div class="modal-overlay" id="addStaffModal">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title"><span>👤</span> 社員追加</h2>
+                <button class="modal-close" onclick="closeModal('addStaffModal')">✕</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">社員番号（5桁）</label>
+                <input type="text" id="newStaffId" class="form-input" placeholder="00001" maxlength="5" inputmode="numeric">
+            </div>
+            <div class="form-group">
+                <label class="form-label">氏名</label>
+                <input type="text" id="newStaffName" class="form-input" placeholder="山田 太郎">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeModal('addStaffModal')">キャンセル</button>
+                <button class="btn btn-success" onclick="addStaff()">追加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 社員編集モーダル -->
+    <div class="modal-overlay" id="editStaffModal">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title"><span>✏️</span> 社員編集</h2>
+                <button class="modal-close" onclick="closeModal('editStaffModal')">✕</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">社員番号</label>
+                <input type="text" id="editStaffId" class="form-input" readonly style="background:var(--gray-100);">
+            </div>
+            <div class="form-group">
+                <label class="form-label">氏名</label>
+                <input type="text" id="editStaffName" class="form-input" placeholder="山田 太郎">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeModal('editStaffModal')">キャンセル</button>
+                <button class="btn btn-primary" onclick="updateStaff()">更新</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 打刻結果モーダル -->
+    <div class="modal-overlay" id="resultModal" onclick="closeModal('resultModal')">
+        <div class="result-card" onclick="event.stopPropagation()">
+            <div class="result-icon" id="resultIcon">🟢</div>
+            <div class="result-title" id="resultTitle">出勤</div>
+            <div class="result-name" id="resultName">山田 太郎 さん</div>
+            <div class="result-time" id="resultTime">09:00:00</div>
+            <button class="result-close" onclick="closeModal('resultModal')">閉じる</button>
+        </div>
+    </div>
+
+    <!-- トースト -->
+    <div class="toast" id="toast">
+        <span id="toastIcon">✓</span>
+        <span id="toastMessage">メッセージ</span>
+    </div>
+
+    <script>
+    // =============================================
+    // 定数・設定
+    // =============================================
+    const PUNCH_TYPES = {
+        'IN':          { name: '出勤',    icon: '🟢', color: '#10b981' },
+        'OUT':         { name: '退勤',    icon: '🔴', color: '#ef4444' },
+        'BREAK_START': { name: '休憩開始', icon: '🟡', color: '#f59e0b' },
+        'BREAK_END':   { name: '休憩終了', icon: '🟠', color: '#06b6d4' }
+    };
+
+    const DEFAULT_PASSWORD = '12345678';
+
+    // RC-S300 USB識別子
+    const RC_S300_FILTERS = [
+        { vendorId: 0x054C, productId: 0x06C1 }, // RC-S300/S
+        { vendorId: 0x054C, productId: 0x06C3 }, // RC-S300/P
+        { vendorId: 0x054C, productId: 0x0DC8 }  // RC-S300/S (FeliCa Port/PaSoRi 4.0)
+    ];
+
+    // =============================================
+    // 状態管理
+    // =============================================
+    let currentPunchType = 'IN';
+    let punchHistory = [];
+    let allPunchHistory = [];
+    let todayStats = { IN: 0, OUT: 0, BREAK_START: 0, BREAK_END: 0 };
+    let staffMaster = {};       // { '00001': '山田 太郎', ... }
+    let cardMaster = {};        // { 'AABBCCDD11223344': '00001', ... }  IDm -> 社員番号
+    let isAdminMode = false;
+
+    // WebUSB関連
+    let usbDevice = null;
+    let isPolling = false;
+    let pollingTimer = null;
+
+    // =============================================
+    // 初期化
+    // =============================================
+    async function init() {
+        await initSecurePassword();
+        loadAllData();
+        updateClock();
+        setInterval(updateClock, 1000);
+        updateStats();
+        updateHistory();
+        updateStaffTable();
+        updateCardTable();
+
+        document.getElementById('staffId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') submitPunch();
+        });
+        document.getElementById('staffId').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 5);
+        });
+        document.getElementById('newStaffId').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 5);
+        });
+
+        // 以前に許可済みのデバイスがあれば自動接続を試みる
+        await tryAutoConnect();
+    }
+
+    // =============================================
+    // データ管理
+    // =============================================
+    function loadAllData() {
+        const savedStaff = localStorage.getItem('staffMaster');
+        if (savedStaff) {
+            staffMaster = JSON.parse(savedStaff);
+        } else {
+            staffMaster = {
+                '00001': '山田 太郎',
+                '00002': '佐藤 花子',
+                '00003': '鈴木 一郎',
+                '00004': '田中 美咲',
+                '00005': '高橋 健太'
+            };
+            saveStaffMaster();
+        }
+
+        const savedCards = localStorage.getItem('cardMaster');
+        cardMaster = savedCards ? JSON.parse(savedCards) : {};
+
+        const savedAllHistory = localStorage.getItem('allPunchHistory');
+        allPunchHistory = savedAllHistory ? JSON.parse(savedAllHistory) : [];
+
+        const today = new Date().toDateString();
+        punchHistory = allPunchHistory.filter(function(r) {
+            return new Date(r.timestamp).toDateString() === today;
+        });
+
+        todayStats = { IN: 0, OUT: 0, BREAK_START: 0, BREAK_END: 0 };
+        punchHistory.forEach(function(r) {
+            if (todayStats.hasOwnProperty(r.type)) todayStats[r.type]++;
+        });
+    }
+
+    function saveStaffMaster() { localStorage.setItem('staffMaster', JSON.stringify(staffMaster)); }
+    function saveCardMaster()  { localStorage.setItem('cardMaster',  JSON.stringify(cardMaster)); }
+    function saveAllData()     { localStorage.setItem('allPunchHistory', JSON.stringify(allPunchHistory)); }
+
+    // =============================================
+    // 時計
+    // =============================================
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clockTime').textContent = now.toLocaleTimeString('ja-JP', { hour12: false });
+        document.getElementById('clockDate').textContent = now.toLocaleDateString('ja-JP', {
+            year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+        });
+    }
+
+    // =============================================
+    // 打刻
+    // =============================================
+    function selectPunchType(type) {
+        currentPunchType = type;
+        document.querySelectorAll('.punch-btn').forEach(function(btn) { btn.classList.remove('active'); });
+        document.querySelector('[data-type="' + type + '"]').classList.add('active');
+    }
+
+    function submitPunch(staffIdOverride) {
+        const raw = staffIdOverride || document.getElementById('staffId').value;
+        const staffId = raw.toString().padStart(5, '0');
+
+        if (!/^\d{5}$/.test(staffId)) {
+            showToast('5桁の社員番号を入力してください', 'error');
+            return;
+        }
+
+        const staffName = staffMaster[staffId] || '未登録社員 (' + staffId + ')';
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('ja-JP', { hour12: false });
+        const punchType = PUNCH_TYPES[currentPunchType];
+
+        const record = {
+            id: Date.now(),
+            staffId: staffId,
+            staffName: staffName,
+            type: currentPunchType,
+            time: timeStr,
+            date: now.toLocaleDateString('ja-JP'),
+            timestamp: now.toISOString()
+        };
+
+        punchHistory.unshift(record);
+        allPunchHistory.unshift(record);
+        todayStats[currentPunchType]++;
+
+        saveAllData();
+        updateStats();
+        updateHistory();
+        showResult(punchType, staffName, timeStr);
+        document.getElementById('staffId').value = '';
+    }
+
+    function showResult(punchType, staffName, time) {
+        document.getElementById('resultIcon').textContent = punchType.icon;
+        document.getElementById('resultTitle').textContent = punchType.name;
+        document.getElementById('resultTitle').style.color = punchType.color;
+        document.getElementById('resultName').textContent = staffName + ' さん';
+        document.getElementById('resultTime').textContent = time;
+        document.getElementById('resultModal').classList.add('show');
+        setTimeout(function() { closeModal('resultModal'); }, 3000);
+    }
+
+    function updateStats() {
+        document.getElementById('statIn').textContent = todayStats.IN;
+        document.getElementById('statOut').textContent = todayStats.OUT;
+        document.getElementById('statBreakStart').textContent = todayStats.BREAK_START;
+        document.getElementById('statBreakEnd').textContent = todayStats.BREAK_END;
+    }
+
+    function updateHistory() {
+        const list = document.getElementById('historyList');
+        if (punchHistory.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>まだ打刻がありません</div></div>';
+            return;
+        }
+        let html = '';
+        punchHistory.slice(0, 10).forEach(function(record) {
+            const pt = PUNCH_TYPES[record.type];
+            const cls = record.type.toLowerCase().replace('_', '-');
+            html += '<div class="history-item">' +
+                '<div class="history-icon ' + cls + '">' + pt.icon + '</div>' +
+                '<div class="history-info">' +
+                '<div class="history-name">' + record.staffName + '</div>' +
+                '<div class="history-type">' + pt.name + '（' + record.staffId + '）</div>' +
+                '</div>' +
+                '<div class="history-time"><div class="history-time-value">' + record.time + '</div></div>' +
+                '</div>';
+        });
+        list.innerHTML = html;
+    }
+
+    // =============================================
+    // WebUSB / RC-S300
+    // =============================================
+
+    /**
+     * 以前に許可済みのRC-S300があれば自動接続
+     */
+    async function tryAutoConnect() {
+        if (!navigator.usb) return;
+        try {
+            const devices = await navigator.usb.getDevices();
+            for (const dev of devices) {
+                if (RC_S300_FILTERS.some(f => f.vendorId === dev.vendorId && f.productId === dev.productId)) {
+                    usbDevice = dev;
+                    await openDevice();
+                    return;
+                }
+            }
+        } catch(e) {
+            console.warn('自動接続失敗:', e);
+        }
+    }
+
+    /**
+     * ユーザー操作による接続
+     */
+    async function connectNFC() {
+        if (!navigator.usb) {
+            showToast('このブラウザはWebUSBに対応していません（Chromeを使用してください）', 'error');
+            return;
+        }
+
+        try {
+            usbDevice = await navigator.usb.requestDevice({ filters: RC_S300_FILTERS });
+            await openDevice();
+        } catch(e) {
+            if (e.name !== 'NotFoundError') {
+                showToast('接続エラー: ' + e.message, 'error');
+            }
+        }
+    }
+
+    /**
+     * デバイスオープン＆ポーリング開始
+     */
+    async function openDevice() {
+        try {
+            await usbDevice.open();
+            await usbDevice.selectConfiguration(1);
+            await usbDevice.claimInterface(0);
+
+            setReaderStatus('connected');
+            showToast('RC-S300 に接続しました', 'success');
+            startPolling();
+            updateCardStaffSelect();
+        } catch(e) {
+            usbDevice = null;
+            setReaderStatus('disconnected');
+            showToast('デバイスオープン失敗: ' + e.message, 'error');
+        }
+    }
+
+    /**
+     * カードポーリング（200ms毎にPollingコマンドを送信）
+     */
+    function startPolling() {
+        if (isPolling) return;
+        isPolling = true;
+        pollingLoop();
+    }
+
+    function stopPolling() {
+        isPolling = false;
+        if (pollingTimer) { clearTimeout(pollingTimer); pollingTimer = null; }
+    }
+
+    async function pollingLoop() {
+        if (!isPolling || !usbDevice || !usbDevice.opened) {
+            isPolling = false;
+            setReaderStatus('disconnected');
+            return;
+        }
+
+        try {
+            const idm = await pollCard();
+            if (idm) {
+                await onCardDetected(idm);
+                // 同じカードの連続打刻を防ぐため少し待つ
+                await sleep(2000);
+            }
+        } catch(e) {
+            // 通常のタイムアウトはスキップ、重大エラーは再接続
+            if (e.message && e.message.includes('disconnected')) {
+                usbDevice = null;
+                isPolling = false;
+                setReaderStatus('disconnected');
+                showToast('RC-S300 が切断されました', 'warning');
+                return;
+            }
+        }
+
+        if (isPolling) {
+            pollingTimer = setTimeout(pollingLoop, 300);
+        }
+    }
+
+    /**
+     * RC-S300へPollingコマンドを送り、カードのIDmを返す
+     * カードなし → null
+     */
+    async function pollCard() {
+        // RC-S300コマンド構造 (RCS380プロトコル)
+        // TurnOnRF → StartTransparentSession → CommunicateThruEx(Polling) → EndTransparentSession
+
+        // RF ON
+        await sendRCS300Command(new Uint8Array([0xd6, 0x2a, 0x01, 0xff, 0x00]));
+        await sleep(10);
+
+        // InSetProtocol
+        await sendRCS300Command(new Uint8Array([
+            0xd6, 0x02,
+            0x00, 0x18, 0x01, 0x01, 0x02, 0x01, 0x03, 0x00,
+            0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x08,
+            0x08, 0x00, 0x09, 0x00, 0x0a, 0x00, 0x0b, 0x00,
+            0x0c, 0x00, 0x0e, 0x04, 0x0f, 0x00, 0x10, 0x00,
+            0x11, 0x00, 0x12, 0x00, 0x13, 0x06
+        ]));
+        await sleep(10);
+
+        // Polling（FeliCa / ISO14443A両対応）
+        // CommunicateThruEx に FeliCa Pollingコマンドを包む
+        const pollingCmd = new Uint8Array([
+            0x04, 0x06, 0x00, 0x06, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00
+        ]);
+        const thruCmd = buildCommunicateThruEx(pollingCmd);
+        const resp = await sendRCS300Command(thruCmd, 50);
+
+        if (!resp || resp.length < 20) return null;
+
+        // レスポンス解析: ポーリング応答からIDm(8byte)を取り出す
+        // RCS380レスポンス構造: ...FeliCaレスポンス...
+        // オフセットは固定ではないため、d7 05 00 を検索してその後のデータを取得
+        const idmBytes = extractIdmFromPollingResponse(resp);
+        return idmBytes;
+    }
+
+    function buildCommunicateThruEx(payload) {
+        // RCS380 CommunicateThruEx フレーム構築
+        const len = payload.length;
+        const frame = new Uint8Array(9 + len);
+        frame[0] = 0xd6;
+        frame[1] = 0xa0;
+        frame[2] = 0x00;  // timeout LSB
+        frame[3] = 0x00;  // timeout MSB
+        frame[4] = 0x00;
+        frame[5] = 0x00;
+        frame[6] = 0x00;
+        frame[7] = len & 0xff;
+        frame[8] = (len >> 8) & 0xff;
+        frame.set(payload, 9);
+        return frame;
+    }
+
+    function extractIdmFromPollingResponse(data) {
+        // FeliCa Pollingレスポンス: 01 response_code 0a IDm(8) PMm(8)
+        // RC-S300レスポンスのペイロード内を探索
+        for (let i = 0; i < data.length - 10; i++) {
+            // FeliCa Poll Responseは 0x01で始まり、次に長さ0x12
+            if (data[i] === 0x01 && data[i+1] === 0x12) {
+                const idmArr = data.slice(i + 2, i + 10);
+                return formatIdm(idmArr);
+            }
+        }
+        return null;
+    }
+
+    function formatIdm(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('');
+    }
+
+    /**
+     * RC-S300にUSBコマンドを送信してレスポンスを受け取る
+     * RC-S300はUSB Bulk Transfer を使用
+     */
+    async function sendRCS300Command(payload, timeoutMs) {
+        timeoutMs = timeoutMs || 200;
+
+        // USB Bulk Out フレーム: 00 00 ff ff ff LEN_L LEN_H LSUM DATA DSUM 00
+        const len = payload.length;
+        const lenHigh = (len >> 8) & 0xff;
+        const lenLow  = len & 0xff;
+        const lenSum  = (0x100 - ((lenHigh + lenLow) & 0xff)) & 0xff;
+
+        let dsum = 0;
+        payload.forEach(b => { dsum += b; });
+        dsum = (0x100 - (dsum & 0xff)) & 0xff;
+
+        const frame = new Uint8Array(8 + len);
+        frame[0] = 0x00;
+        frame[1] = 0x00;
+        frame[2] = 0xff;
+        frame[3] = 0xff;
+        frame[4] = 0xff;
+        frame[5] = lenLow;
+        frame[6] = lenHigh;
+        frame[7] = lenSum;
+        frame.set(payload, 8);
+        // DSumとTerminator
+        const fullFrame = new Uint8Array(frame.length + 2);
+        fullFrame.set(frame);
+        fullFrame[frame.length]   = dsum;
+        fullFrame[frame.length+1] = 0x00;
+
+        try {
+            await usbDevice.transferOut(2, fullFrame);
+            const result = await usbDevice.transferIn(1, 256);
+            if (result.data) {
+                return new Uint8Array(result.data.buffer);
+            }
+        } catch(e) {
+            // タイムアウトや空レスポンスは無視
+        }
+        return null;
+    }
+
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+    /**
+     * カード検出時の処理
+     */
+    async function onCardDetected(idm) {
+        console.log('カード検出 IDm:', idm);
+
+        // カード管理画面が開いていれば読み取りフィールドに自動入力
+        if (isAdminMode && document.getElementById('adminCards').classList.contains('show')) {
+            document.getElementById('newCardIdm').value = idm;
+            document.getElementById('cardReadStatus').textContent = '✅ IDm読み取り完了: ' + idm;
+            showToast('カードを読み取りました', 'success');
+            return;
+        }
+
+        // 通常打刻モード
+        const staffId = cardMaster[idm];
+        if (!staffId) {
+            showToast('未登録のカードです（管理者パネルで登録してください）', 'warning');
+            return;
+        }
+
+        submitPunch(staffId);
+    }
+
+    // =============================================
+    // リーダーステータス表示
+    // =============================================
+    function setReaderStatus(status) {
+        const badge  = document.getElementById('readerStatusBadge');
+        const text   = document.getElementById('readerStatusText');
+        const banner = document.getElementById('nfcBanner');
+        const bannerTitle = document.getElementById('nfcBannerTitle');
+        const bannerSub   = document.getElementById('nfcBannerSub');
+        const btn = document.getElementById('nfcConnectBtn');
+
+        badge.className = 'status-badge';
+        banner.className = 'nfc-banner';
+
+        if (status === 'connected') {
+            badge.classList.add('connected');
+            text.textContent = 'RC-S300 接続中';
+            banner.classList.add('connected');
+            bannerTitle.textContent = 'RC-S300 接続済み ✅';
+            bannerSub.textContent = 'カードをタッチすると自動的に打刻されます';
+            btn.textContent = '再接続';
+            btn.innerHTML = '<span>🔄</span> 再接続';
+        } else {
+            badge.classList.add('disconnected');
+            text.textContent = 'リーダー未接続';
+            bannerTitle.textContent = 'RC-S300 未接続';
+            bannerSub.textContent = '接続ボタンを押してリーダーに接続してください';
+            btn.innerHTML = '<span>🔌</span> 接続';
+        }
+    }
+
+    // =============================================
+    // カード管理
+    // =============================================
+    function updateCardStaffSelect() {
+        const sel = document.getElementById('newCardStaff');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- 社員を選択 --</option>';
+        Object.keys(staffMaster).sort().forEach(function(id) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = id + '：' + staffMaster[id];
+            sel.appendChild(opt);
+        });
+    }
+
+    async function readCardForRegistration() {
+        if (!usbDevice || !usbDevice.opened) {
+            showToast('先にリーダーを接続してください', 'warning');
+            return;
+        }
+        const status = document.getElementById('cardReadStatus');
+        status.textContent = 'カードをリーダーにかざしてください…';
+        try {
+            // 最大5秒間ポーリング
+            const start = Date.now();
+            while (Date.now() - start < 5000) {
+                const idm = await pollCard();
+                if (idm) {
+                    document.getElementById('newCardIdm').value = idm;
+                    status.textContent = '✅ IDm読み取り完了: ' + idm;
+                    showToast('カードを読み取りました', 'success');
+                    return;
+                }
+                await sleep(300);
+            }
+            status.textContent = '⚠️ タイムアウト。カードが正しくかざされていません。';
+        } catch(e) {
+            status.textContent = 'エラー: ' + e.message;
+        }
+    }
+
+    function addCard() {
+        const idm     = document.getElementById('newCardIdm').value.trim().toUpperCase().replace(/\s/g, '');
+        const staffId = document.getElementById('newCardStaff').value;
+
+        if (!idm || idm.length < 8) {
+            showToast('IDmを正しく入力してください（8文字以上）', 'error'); return;
+        }
+        if (!/^[0-9A-F]+$/.test(idm)) {
+            showToast('IDmは16進数（0-9, A-F）で入力してください', 'error'); return;
+        }
+        if (!staffId) {
+            showToast('社員を選択してください', 'error'); return;
+        }
+
+        cardMaster[idm] = staffId;
+        saveCardMaster();
+        updateCardTable();
+        updateStaffTable();
+
+        document.getElementById('newCardIdm').value = '';
+        document.getElementById('newCardStaff').value = '';
+        document.getElementById('cardReadStatus').textContent = 'リーダーに接続後、「📡 読み取り」ボタンを押してカードをかざしてください。';
+
+        showToast('カードを登録しました：' + staffMaster[staffId], 'success');
+    }
+
+    // =============================================
+    // 管理者パネル
+    // =============================================
+    function updateStaffTable() {
+        const tbody = document.getElementById('staffTableBody');
+        const sortedIds = Object.keys(staffMaster).sort();
+        let html = '';
+
+        sortedIds.forEach(function(id) {
+            const name = staffMaster[id];
+            const cardIdm = Object.keys(cardMaster).find(idm => cardMaster[idm] === id);
+            const cardBadge = cardIdm
+                ? '<span class="idm-badge registered">💳 ' + formatIdmDisplay(cardIdm) + '</span>'
+                : '<span class="idm-badge unregistered">未登録</span>';
+
+            html += '<tr>' +
+                '<td>' + id + '</td>' +
+                '<td>' + name + '</td>' +
+                '<td>' + cardBadge + '</td>' +
+                '<td class="staff-actions">' +
+                '<button class="btn btn-secondary btn-icon" onclick="openEditStaffModal(\'' + id + '\', \'' + name + '\')" title="編集">✏️</button>' +
+                '<button class="btn btn-danger btn-icon" onclick="deleteStaff(\'' + id + '\')" title="削除">🗑️</button>' +
+                '</td></tr>';
+        });
+
+        if (!html) html = '<tr><td colspan="4" style="text-align:center; color:var(--gray-400);">登録された社員がいません</td></tr>';
+        tbody.innerHTML = html;
+    }
+
+    function updateCardTable() {
+        const tbody = document.getElementById('cardTableBody');
+        const idmKeys = Object.keys(cardMaster);
+        let html = '';
+
+        idmKeys.forEach(function(idm) {
+            const staffId = cardMaster[idm];
+            const staffName = staffMaster[staffId] || '（社員削除済み）';
+            html += '<tr>' +
+                '<td><span class="idm-badge">' + formatIdmDisplay(idm) + '</span></td>' +
+                '<td>' + staffId + '</td>' +
+                '<td>' + staffName + '</td>' +
+                '<td>' +
+                '<button class="btn btn-danger btn-icon" onclick="deleteCard(\'' + idm + '\')" title="削除">🗑️</button>' +
+                '</td></tr>';
+        });
+
+        if (!html) html = '<tr><td colspan="4" style="text-align:center; color:var(--gray-400);">登録されたカードがありません</td></tr>';
+        tbody.innerHTML = html;
+    }
+
+    function deleteCard(idm) {
+        const staffId = cardMaster[idm];
+        const name = staffMaster[staffId] || staffId;
+        if (confirm('カード（' + formatIdmDisplay(idm) + '）の登録を削除しますか？\n社員：' + name)) {
+            delete cardMaster[idm];
+            saveCardMaster();
+            updateCardTable();
+            updateStaffTable();
+            showToast('カード登録を削除しました', 'success');
+        }
+    }
+
+    function toggleAdminMode() {
+        if (isAdminMode) {
+            isAdminMode = false;
+            document.getElementById('normalMode').style.display = 'block';
+            document.getElementById('adminPanel').classList.remove('show');
+            document.getElementById('adminToggleBtn').classList.remove('active');
+            document.getElementById('adminBtnText').textContent = '管理者';
+            showToast('管理者モードを終了しました', 'success');
+        } else {
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginModal').classList.add('show');
+        }
+    }
+
+    async function adminLogin() {
+        const password = document.getElementById('loginPassword').value;
+        const inputHash = await hashPassword(password);
+        const storedHash = localStorage.getItem('adminPasswordHash');
+
+        if (inputHash === storedHash) {
+            isAdminMode = true;
+            closeModal('loginModal');
+            document.getElementById('normalMode').style.display = 'none';
+            document.getElementById('adminPanel').classList.add('show');
+            document.getElementById('adminToggleBtn').classList.add('active');
+            document.getElementById('adminBtnText').textContent = 'ログアウト';
+            updateStaffTable();
+            updateCardTable();
+            updateCardStaffSelect();
+            showToast('管理者モードでログインしました', 'success');
+        } else {
+            showToast('パスワードが正しくありません', 'error');
+        }
+    }
+
+    function switchAdminTab(tab, el) {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.admin-content').forEach(c => c.classList.remove('show'));
+        el.classList.add('active');
+        const key = tab.charAt(0).toUpperCase() + tab.slice(1);
+        document.getElementById('admin' + key).classList.add('show');
+        if (tab === 'cards') { updateCardStaffSelect(); updateCardTable(); }
+    }
+
+    function openAddStaffModal() {
+        document.getElementById('newStaffId').value = '';
+        document.getElementById('newStaffName').value = '';
+        document.getElementById('addStaffModal').classList.add('show');
+    }
+
+    function addStaff() {
+        const id   = document.getElementById('newStaffId').value.padStart(5, '0');
+        const name = document.getElementById('newStaffName').value.trim();
+        if (!/^\d{5}$/.test(id)) { showToast('社員番号は5桁の数字で入力してください', 'error'); return; }
+        if (!name) { showToast('氏名を入力してください', 'error'); return; }
+        if (staffMaster[id]) { showToast('この社員番号は既に登録されています', 'error'); return; }
+        staffMaster[id] = name;
+        saveStaffMaster();
+        updateStaffTable();
+        closeModal('addStaffModal');
+        showToast('社員を追加しました: ' + name, 'success');
+    }
+
+    function openEditStaffModal(id, name) {
+        document.getElementById('editStaffId').value = id;
+        document.getElementById('editStaffName').value = name;
+        document.getElementById('editStaffModal').classList.add('show');
+    }
+
+    function updateStaff() {
+        const id   = document.getElementById('editStaffId').value;
+        const name = document.getElementById('editStaffName').value.trim();
+        if (!name) { showToast('氏名を入力してください', 'error'); return; }
+        staffMaster[id] = name;
+        saveStaffMaster();
+        updateStaffTable();
+        closeModal('editStaffModal');
+        showToast('社員情報を更新しました', 'success');
+    }
+
+    function deleteStaff(id) {
+        if (confirm('社員「' + staffMaster[id] + '」を削除しますか？')) {
+            delete staffMaster[id];
+            saveStaffMaster();
+            updateStaffTable();
+            showToast('社員を削除しました', 'success');
+        }
+    }
+
+    // =============================================
+    // CSV出力
+    // =============================================
+    function toDateStr(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + d;
+    }
+
+    function setDateRange(preset) {
+        const now = new Date();
+        let from, to;
+
+        if (preset === 'thisWeek') {
+            const day = now.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            from = new Date(now); from.setDate(now.getDate() + diff);
+            to = new Date(now);
+        } else if (preset === 'lastWeek') {
+            const day = now.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            from = new Date(now); from.setDate(now.getDate() + diff - 7);
+            to   = new Date(now); to.setDate(now.getDate() + diff - 1);
+        } else if (preset === 'lastMonth') {
+            from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            to   = new Date(now.getFullYear(), now.getMonth(), 0);
+        } else if (preset === 'last3months') {
+            from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+            to   = new Date(now.getFullYear(), now.getMonth(), 0);
+        }
+
+        document.getElementById('exportDateFrom').value = toDateStr(from);
+        document.getElementById('exportDateTo').value   = toDateStr(to);
+        document.getElementById('rangePreview').classList.add('hidden');
+    }
+
+    function exportCSV(range) {
+        let data = [];
+        let filename = '';
+        const now = new Date();
+        const today = toDateStr(now);
+
+        if (range === 'today') {
+            data = punchHistory;
+            filename = '打刻データ_' + today + '.csv';
+
+        } else if (range === 'month') {
+            const y = now.getFullYear(), m = now.getMonth();
+            data = allPunchHistory.filter(function(r) {
+                const d = new Date(r.timestamp);
+                return d.getFullYear() === y && d.getMonth() === m;
+            });
+            filename = '打刻データ_' + y + '年' + (m + 1) + '月.csv';
+
+        } else if (range === 'range') {
+            const fromVal = document.getElementById('exportDateFrom').value;
+            const toVal   = document.getElementById('exportDateTo').value;
+            if (!fromVal || !toVal) {
+                showToast('開始日と終了日を選択してください', 'error'); return;
+            }
+            if (fromVal > toVal) {
+                showToast('開始日は終了日より前に設定してください', 'error'); return;
+            }
+            const fromDate = new Date(fromVal + 'T00:00:00');
+            const toDate   = new Date(toVal   + 'T23:59:59');
+            data = allPunchHistory.filter(function(r) {
+                const d = new Date(r.timestamp);
+                return d >= fromDate && d <= toDate;
+            });
+            filename = '打刻データ_' + fromVal + '_' + toVal + '.csv';
+
+            const preview = document.getElementById('rangePreview');
+            preview.classList.remove('hidden');
+            preview.textContent = '✅ ' + fromVal + ' 〜 ' + toVal + '：' + data.length + '件';
+
+        } else {
+            data = allPunchHistory;
+            filename = '打刻データ_全期間_' + today + '.csv';
+        }
+
+        if (data.length === 0) { showToast('該当期間のデータがありません', 'warning'); return; }
+
+        let csv = '\uFEFF社員番号,氏名,打刻種別,日付,時刻,タイムスタンプ\n';
+        data.forEach(function(r) {
+            const typeName = PUNCH_TYPES[r.type] ? PUNCH_TYPES[r.type].name : r.type;
+            csv += r.staffId + ',"' + r.staffName + '",' + typeName + ',' + r.date + ',' + r.time + ',' + r.timestamp + '\n';
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = filename; link.click();
+        URL.revokeObjectURL(url);
+        showToast('CSVをダウンロードしました（' + data.length + '件）', 'success');
+    }
+
+    // =============================================
+    // セキュリティ（パスワードハッシュ化）
+    // =============================================
+    async function hashPassword(password) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function initSecurePassword() {
+        const storedHash = localStorage.getItem('adminPasswordHash');
+        if (!storedHash) {
+            const oldPassword = localStorage.getItem('adminPassword');
+            const hash = await hashPassword(oldPassword || DEFAULT_PASSWORD);
+            localStorage.setItem('adminPasswordHash', hash);
+            localStorage.removeItem('adminPassword');
+            if (!oldPassword || oldPassword === DEFAULT_PASSWORD) {
+                setTimeout(() => showToast('⚠️ 初期パスワードを変更してください', 'warning'), 2000);
+            }
+        }
+    }
+
+    async function changePassword() {
+        const current = document.getElementById('currentPassword').value;
+        const newPass  = document.getElementById('newPassword').value;
+        const confirm  = document.getElementById('confirmPassword').value;
+
+        const currentHash = await hashPassword(current);
+        const storedHash  = localStorage.getItem('adminPasswordHash');
+        if (currentHash !== storedHash) { showToast('現在のパスワードが正しくありません', 'error'); return; }
+        if (newPass.length < 8) { showToast('パスワードは8文字以上で入力してください', 'error'); return; }
+        if (newPass !== confirm) { showToast('新しいパスワードが一致しません', 'error'); return; }
+        if (newPass === DEFAULT_PASSWORD) { showToast('初期パスワードは使用できません', 'error'); return; }
+
+        const newHash = await hashPassword(newPass);
+        localStorage.setItem('adminPasswordHash', newHash);
+        document.getElementById('currentPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        showToast('パスワードを変更しました', 'success');
+    }
+
+    // =============================================
+    // ユーティリティ
+    // =============================================
+    function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+    function showToast(message, type) {
+        type = type || 'success';
+        const toast = document.getElementById('toast');
+        const icons = { success: '✓', error: '✕', warning: '⚠' };
+        document.getElementById('toastIcon').textContent = icons[type] || '✓';
+        document.getElementById('toastMessage').textContent = message;
+        toast.className = 'toast ' + type + ' show';
+        setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // =============================================
+    // 起動
+    // =============================================
+    init();
+    </script>
+</body>
+</html>
