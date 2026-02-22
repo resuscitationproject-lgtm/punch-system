@@ -572,45 +572,41 @@
                 <!-- カード管理 -->
                 <div id="adminCards" class="admin-content">
                     <h3 style="margin-bottom:8px;">カード（IDm）登録</h3>
-                    <p class="text-muted" style="margin-bottom:20px;">社員にICカードを割り当てます。カードをリーダーにタッチして登録してください。</p>
+                    <p class="text-muted" style="margin-bottom:20px;">社員にICカードを割り当てます。IDmを手入力またはターミナルで確認して登録してください。</p>
 
+                    <!-- カード登録フォーム -->
                     <div class="register-wizard">
-                        <!-- Step1: リーダー接続確認 -->
-                        <div class="wizard-step show" id="wizardStep1">
-                            <div class="section-title">Step 1：リーダーに接続</div>
-                            <p class="text-muted">RC-S300がまだ接続されていない場合は先に接続してください。</p>
-                            <button class="btn btn-primary mt-2" onclick="connectNFC(); checkWizardStep()">
-                                <span>🔌</span> リーダー接続
-                            </button>
+                        <div class="section-title">✍️ カードを登録</div>
+                        <div class="form-group">
+                            <label class="form-label">IDm（カードの固有ID）</label>
+                            <input type="text" id="newCardIdm" class="form-input" placeholder="例：02E07211713580" maxlength="16"
+                                   style="font-family:monospace; letter-spacing:2px; font-size:1.1rem;">
+                            <p class="text-muted mt-2">💡 IDmはターミナルで以下のコマンドで確認できます：<br>
+                            <code style="background:var(--gray-100);padding:4px 8px;border-radius:4px;font-size:0.85rem;">python3 -c "from smartcard.System import readers; r=readers(); conn=r[0].createConnection(); conn.connect(); data,sw1,sw2=conn.transmit([0xFF,0xCA,0x00,0x00,0x00]); print('IDm:', ''.join('{:02X}'.format(b) for b in data))"</code>
+                            </p>
                         </div>
-
-                        <!-- Step2: カードタッチ -->
-                        <div class="wizard-step" id="wizardStep2">
-                            <div class="section-title">Step 2：登録するカードをタッチ</div>
-                            <p class="text-muted">リーダーにカードをかざすと、IDmが読み取られます。</p>
-                            <div class="idm-display" id="wizardIdmDisplay">---- ---- ---- ----</div>
-                            <div id="wizardIdmStatus" class="text-muted" style="text-align:center;">待機中…</div>
+                        <div class="form-group">
+                            <label class="form-label">割り当て先の社員</label>
+                            <select id="newCardStaff" class="form-input">
+                                <option value="">-- 社員を選択 --</option>
+                            </select>
                         </div>
-
-                        <!-- Step3: 社員に割り当て -->
-                        <div class="wizard-step" id="wizardStep3">
-                            <div class="section-title">Step 3：社員に割り当て</div>
-                            <p class="text-muted">読み取ったカードを社員に割り当てます。</p>
-                            <div class="idm-display" id="wizardIdmDisplay3">-</div>
-                            <div class="form-group mt-2">
-                                <label class="form-label">割り当て先の社員</label>
-                                <select id="wizardStaffSelect" class="form-input">
-                                    <option value="">-- 社員を選択 --</option>
-                                </select>
-                            </div>
-                            <div class="form-actions">
-                                <button class="btn btn-secondary" onclick="resetWizard()">キャンセル</button>
-                                <button class="btn btn-success" onclick="assignCard()"><span>💳</span> 登録</button>
-                            </div>
-                        </div>
+                        <button class="btn btn-success" onclick="addCard()" style="width:100%;">
+                            <span>💳</span> カードを登録
+                        </button>
                     </div>
 
-                    <h3 style="margin: 24px 0 16px;">登録済みカード一覧</h3>
+                    <!-- 登録済みカード一覧 -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin: 24px 0 16px;">
+                        <h3>登録済みカード一覧</h3>
+                        <button class="btn btn-success btn-sm" onclick="exportCardMaster()">
+                            <span>📥</span> card_master.json をダウンロード
+                        </button>
+                    </div>
+                    <div class="info-box" style="margin-bottom:16px;">
+                        💡 カード登録後、ターミナルで以下を実行してください：<br>
+                        <code style="font-size:0.85rem;">mv ~/Downloads/card_master.json ~/card_master.json</code>
+                    </div>
                     <div style="overflow-x:auto;">
                         <table class="staff-table">
                             <thead><tr><th>IDm</th><th>社員番号</th><th>氏名</th><th>操作</th></tr></thead>
@@ -1236,62 +1232,58 @@
     }
 
     // =============================================
-    // カード登録ウィザード
+    // カード管理
     // =============================================
-    function checkWizardStep() {
-        if (usbDevice && usbDevice.opened) {
-            document.getElementById('wizardStep1').classList.remove('show');
-            document.getElementById('wizardStep2').classList.add('show');
-            document.getElementById('wizardIdmStatus').textContent = 'カードをリーダーにかざしてください…';
-        }
-    }
-
-    function handleWizardCardRead(idm) {
-        wizardIdm = idm;
-        document.getElementById('wizardStep2').classList.remove('show');
-        document.getElementById('wizardStep3').classList.add('show');
-        document.getElementById('wizardIdmDisplay').textContent = formatIdmDisplay(idm);
-        document.getElementById('wizardIdmDisplay3').textContent = formatIdmDisplay(idm);
-
-        // 社員セレクト更新
-        const sel = document.getElementById('wizardStaffSelect');
+    function updateCardStaffSelect() {
+        const sel = document.getElementById('newCardStaff');
+        if (!sel) return;
         sel.innerHTML = '<option value="">-- 社員を選択 --</option>';
         Object.keys(staffMaster).sort().forEach(function(id) {
             const opt = document.createElement('option');
             opt.value = id;
             opt.textContent = id + '：' + staffMaster[id];
-            // 既に登録済みかチェック
-            if (cardMaster[idm] === id) opt.selected = true;
             sel.appendChild(opt);
         });
-
-        showToast('カードを読み取りました: ' + formatIdmDisplay(idm), 'success');
     }
 
-    function formatIdmDisplay(idm) {
-        return idm.match(/.{1,4}/g).join(' ');
-    }
+    function addCard() {
+        const idm     = document.getElementById('newCardIdm').value.trim().toUpperCase().replace(/\s/g, '');
+        const staffId = document.getElementById('newCardStaff').value;
 
-    function assignCard() {
-        const staffId = document.getElementById('wizardStaffSelect').value;
-        if (!staffId) { showToast('社員を選択してください', 'error'); return; }
-        if (!wizardIdm) { showToast('IDmが取得できていません', 'error'); return; }
+        if (!idm || idm.length < 8) {
+            showToast('IDmを正しく入力してください（8文字以上）', 'error'); return;
+        }
+        if (!/^[0-9A-F]+$/.test(idm)) {
+            showToast('IDmは16進数（0-9, A-F）で入力してください', 'error'); return;
+        }
+        if (!staffId) {
+            showToast('社員を選択してください', 'error'); return;
+        }
 
-        cardMaster[wizardIdm] = staffId;
+        cardMaster[idm] = staffId;
         saveCardMaster();
         updateCardTable();
         updateStaffTable();
-        resetWizard();
+
+        document.getElementById('newCardIdm').value = '';
+        document.getElementById('newCardStaff').value = '';
+
         showToast('カードを登録しました：' + staffMaster[staffId], 'success');
     }
 
-    function resetWizard() {
-        wizardIdm = null;
-        document.getElementById('wizardStep1').classList.remove('show');
-        document.getElementById('wizardStep2').classList.remove('show');
-        document.getElementById('wizardStep3').classList.remove('show');
-        document.getElementById('wizardIdmDisplay').textContent = '---- ---- ---- ----';
-        checkWizardStep(); // 接続済みなら Step2 に戻す
+    function exportCardMaster() {
+        if (Object.keys(cardMaster).length === 0) {
+            showToast('登録されたカードがありません', 'warning'); return;
+        }
+        const json = JSON.stringify(cardMaster, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'card_master.json';
+        link.click();
+        URL.revokeObjectURL(url);
+        showToast('card_master.json をダウンロードしました', 'success');
     }
 
     // =============================================
@@ -1384,7 +1376,7 @@
             document.getElementById('adminBtnText').textContent = 'ログアウト';
             updateStaffTable();
             updateCardTable();
-            checkWizardStep();
+            updateCardStaffSelect();
             showToast('管理者モードでログインしました', 'success');
         } else {
             showToast('パスワードが正しくありません', 'error');
@@ -1397,7 +1389,7 @@
         el.classList.add('active');
         const key = tab.charAt(0).toUpperCase() + tab.slice(1);
         document.getElementById('admin' + key).classList.add('show');
-        if (tab === 'cards') { checkWizardStep(); updateCardTable(); }
+        if (tab === 'cards') { updateCardStaffSelect(); updateCardTable(); }
     }
 
     function openAddStaffModal() {
